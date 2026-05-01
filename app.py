@@ -31,6 +31,12 @@ def run_ai_agent():
     game = vzd.DoomGame()
     game.set_doom_game_path("doom1.wad")
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
+
+    game.set_screen_resolution(vzd.ScreenResolution.RES_160X120) # Tiny resolution
+    game.set_screen_format(vzd.ScreenFormat.GRAY8) # Grayscale uses 3x less RAM
+    game.set_render_hud(False) 
+    
+    game.set_window_visible(False)
     game.init()
 
     while True:
