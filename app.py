@@ -15,14 +15,13 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # --- STAY AWAKE LOGIC ---
 def keep_awake():
-    url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}.onrender.com"
     while True:
         try:
-            requests.get(url, timeout=5)
+            requests.get("https://ai-plays-doom.onrender.com", timeout=5)
             print("Self-ping: Awake")
         except:
             print("Ping failed")
-        time.sleep(840) # 14 minutes
+        time.sleep(5*60) # 14 minutes
 
 # --- AI AGENT LOGIC ---
 stats = {"deaths": 0, "level": "E1M1", "kills": 0}
