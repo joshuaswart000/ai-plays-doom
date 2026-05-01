@@ -12,79 +12,78 @@ import numpy as np
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# --- LIGHTWEIGHT NEURAL NETWORK (NUMPY BRAIN) ---
-# 19200 pixels (160x120) mapped to 3 actions [Forward, Left, Right]
-np.random.seed(42) 
-weights = np.random.rand(19200, 3) - 0.5 # Center weights around 0
+# --- EVOLUTIONARY BRAIN SETUP ---
+np.random.seed(42)
+# 19200 pixels -> 3 actions
+weights = np.random.rand(19200, 3) - 0.5
+generation = 1
+
+def mutate_brain(intensity=0.02):
+    """Slightly alters the weights to 'learn' new behaviors on death."""
+    global weights, generation
+    mutation = (np.random.rand(19200, 3) - 0.5) * intensity
+    weights += mutation
+    generation += 1
+    print(f"Brain Mutated. Now at Generation: {generation}")
 
 def get_ai_action(screen_buffer):
-    # Flatten and normalize the 160x120 grayscale image
     flattened = screen_buffer.flatten() / 255.0
-    # Simple Matrix Multiply (The "Neural" part)
     prediction = np.dot(flattened, weights)
-    # Return binary actions based on thresholds
     return [1 if x > 0 else 0 for x in prediction]
 
-# --- STAY AWAKE LOGIC ---
+# --- STAY AWAKE ---
 def keep_awake():
     url = "https://ai-plays-doom.onrender.com"
     while True:
         try:
             requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-            print("Self-ping: Success")
-        except Exception as e:
-            print(f"Self-ping: Failed - {e}")
-        time.sleep(300) # 5 minutes
+        except:
+            pass
+        time.sleep(300)
 
-# --- AI AGENT LOGIC ---
-stats = {"deaths": 0, "level": "E1M1", "kills": 0}
+# --- AI AGENT ---
+stats = {"deaths": 0, "level": "E1M1", "kills": 0, "gen": 1}
 
 def run_ai_agent():
     global stats
     game = vzd.DoomGame()
-    
-    # Path to your lowercase wad
     game.set_doom_game_path("doom1.wad") 
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
     
-    # High-efficiency settings for Render Free Tier
     game.set_screen_resolution(vzd.ScreenResolution.RES_160X120)
     game.set_screen_format(vzd.ScreenFormat.GRAY8)
     game.set_render_hud(False)
     game.set_window_visible(False)
     game.init()
 
-    print("AI Agent Started with Numpy Brain")
-    
     while True:
         if game.is_episode_finished():
             stats["deaths"] += 1
+            # EVOLVE: Change the brain slightly every time he dies
+            mutate_brain()
+            stats["gen"] = generation
             socketio.emit('stats_update', stats)
             game.new_episode()
 
         state = game.get_state()
         if state:
             frame = state.screen_buffer
-            
-            # 1. AI Decision Making
             action = get_ai_action(frame)
             game.make_action(action)
 
-            # 2. Transmit frame to web
             _, buffer = cv2.imencode('.jpg', frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             socketio.emit('new_frame', {'image': jpg_as_text})
 
-            # 3. Update Stats
             curr_kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
             if curr_kills != stats["kills"]:
                 stats["kills"] = curr_kills
                 socketio.emit('stats_update', stats)
 
-        socketio.sleep(0) # Yield to web server
+        socketio.sleep(0)
         time.sleep(0.05)
 
-# --- WEB ROUTES ---
+# --- WEB UI ---
 @app.route('/')
 def index():
     return render_template_string('''
@@ -97,6 +96,7 @@ def index():
                 h1 { color: #f00; text-shadow: 0 0 10px #f00; margin: 10px 0; }
                 .stats { display: flex; justify-content: center; gap: 30px; font-size: 1.2rem; margin: 20px 0; }
                 #doomCanvas { border: 4px solid #333; box-shadow: 0 0 20px #0f0; width: 640px; height: 480px; image-rendering: pixelated; }
+                .gen-tag { color: #555; font-size: 0.8rem; }
             </style>
         </head>
         <body>
@@ -105,9 +105,10 @@ def index():
                 <div>LEVEL: <span id="level">E1M1</span></div>
                 <div>DEATHS: <span id="deaths">0</span></div>
                 <div>KILLS: <span id="kills">0</span></div>
+                <div style="color:#0af">GEN: <span id="gen">1</span></div>
             </div>
             <canvas id="doomCanvas" width="160" height="120"></canvas>
-            <p>Neural Network Brain (Numpy) - Running 24/7</p>
+            <p class="gen-tag">Neural Network (Genetic Mutation on Death) - Learning 24/7</p>
 
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
             <script>
@@ -118,6 +119,7 @@ def index():
                 socket.on('stats_update', (data) => {
                     document.getElementById('deaths').innerText = data.deaths;
                     document.getElementById('kills').innerText = data.kills;
+                    document.getElementById('gen').innerText = data.gen;
                 });
 
                 socket.on('new_frame', (data) => {
@@ -133,6 +135,5 @@ def index():
 if __name__ == '__main__':
     threading.Thread(target=keep_awake, daemon=True).start()
     threading.Thread(target=run_ai_agent, daemon=True).start()
-    
     port = int(os.environ.get('PORT', 10000))
     socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
