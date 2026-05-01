@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Exit on error
+# exit on error
 set -o errexit
 
+# Install Python dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Render doesn't allow sudo, but vizdoom wheels often 
-# bundle what they need. If it fails, we will use a 
-# specialized "headless" version of the library.
+# ViZDoom needs a placeholder for some system libs on Render
+# If the build fails, we'll shift to a headless-precompiled wheel
