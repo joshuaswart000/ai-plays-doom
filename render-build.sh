@@ -2,8 +2,13 @@
 # exit on error
 set -o errexit
 
-# Upgrade pip
+# 1. Update pip
 pip install --upgrade pip
 
-# Install dependencies
+# 2. Install Python dependencies
 pip install -r requirements.txt
+
+# 3. Ensure vizdoom has a place to live
+# Render doesn't let us use 'apt-get', but we can force 
+# a headless-friendly install of opencv if it's missing.
+pip install opencv-python-headless
