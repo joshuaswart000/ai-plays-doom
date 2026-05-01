@@ -5,6 +5,8 @@ import requests
 import vizdoom as vzd
 from flask import Flask, render_template_string
 from flask_socketio import SocketIO, emit
+import base64
+import cv2
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -40,6 +42,17 @@ def run_ai_agent():
     game.init()
 
     while True:
+        state = game.get_state()
+        if state:
+            # 1. Get the screen buffer
+            frame = state.screen_buffer
+            
+            # 2. Convert/Compress to JPEG to save bandwidth
+            _, buffer = cv2.imencode('.jpg', frame)
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            
+            # 3. Emit to the website
+            socketio.emit('new_frame', {'image': jpg_as_text})
         if game.is_episode_finished():
             stats["deaths"] += 1  # Increment death counter
             socketio.emit('stats_update', stats) # Send to website
@@ -59,6 +72,15 @@ def run_ai_agent():
 # --- WEB ROUTES ---
 @app.route('/')
 def index():
+    socket.on('new_frame', (data) => {
+        const canvas = document.getElementById('doomCanvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = function() {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = "data:image/jpeg;base64," + data.image;
+    });
     return render_template_string('''
         <body style="background:#000; color:#0f0; font-family:monospace; text-align:center;">
             <h1 style="text-shadow: 0 0 10px #f00; color:#f00;">AI DOOM SLAYER</h1>
