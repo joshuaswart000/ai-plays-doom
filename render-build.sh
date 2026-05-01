@@ -2,9 +2,8 @@
 # exit on error
 set -o errexit
 
-# Install Python dependencies
+# Upgrade pip
 pip install --upgrade pip
-pip install -r requirements.txt
 
-# ViZDoom needs a placeholder for some system libs on Render
-# If the build fails, we'll shift to a headless-precompiled wheel
+# Install dependencies
+pip install -r requirements.txt
