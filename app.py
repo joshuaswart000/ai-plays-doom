@@ -7,6 +7,7 @@ from flask import Flask, render_template_string
 from flask_socketio import SocketIO, emit
 import base64
 import cv2
+import random
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -64,8 +65,9 @@ def run_ai_agent():
             stats["kills"] = current_kills
             socketio.emit('stats_update', stats)
 
-        game.make_action([1, 0, 1])
-        time.sleep(0.02)
+        random_action = [random.choice([0, 1]), random.choice([0, 1]), random.choice([0, 1])]
+        game.make_action(random_action)
+        time.sleep(0.1)
 
 
 
