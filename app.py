@@ -72,15 +72,6 @@ def run_ai_agent():
 # --- WEB ROUTES ---
 @app.route('/')
 def index():
-    socket.on('new_frame', (data) => {
-        const canvas = document.getElementById('doomCanvas');
-        const ctx = canvas.getContext('2d');
-        const img = new Image();
-        img.onload = function() {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
-        img.src = "data:image/jpeg;base64," + data.image;
-    });
     return render_template_string('''
         <body style="background:#000; color:#0f0; font-family:monospace; text-align:center;">
             <h1 style="text-shadow: 0 0 10px #f00; color:#f00;">AI DOOM SLAYER</h1>
@@ -91,15 +82,28 @@ def index():
                 <div>KILLS: <span id="kills">0</span></div>
             </div>
 
-            <canvas id="doomCanvas" style="border:4px solid #333; box-shadow: 0 0 20px #0f0;"></canvas>
+            <canvas id="doomCanvas" width="640" height="480" style="border:4px solid #333; box-shadow: 0 0 20px #0f0;"></canvas>
 
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
             <script>
                 var socket = io();
+                
+                // This handles the stats (Kills/Deaths)
                 socket.on('stats_update', (data) => {
                     document.getElementById('deaths').innerText = data.deaths;
                     document.getElementById('level').innerText = data.level;
                     document.getElementById('kills').innerText = data.kills;
+                });
+
+                // This handles the actual game frames
+                socket.on('new_frame', (data) => {
+                    const canvas = document.getElementById('doomCanvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    img.onload = function() {
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    };
+                    img.src = "data:image/jpeg;base64," + data.image;
                 });
             </script>
         </body>
