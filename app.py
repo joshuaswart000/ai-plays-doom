@@ -23,29 +23,29 @@ def keep_awake():
         time.sleep(14 * 60) # 14 minutes
 
 # --- AI AGENT LOGIC ---
+# Initialize global stats
+stats = {"deaths": 0, "level": "E1M1", "kills": 0}
+
 def run_ai_agent():
+    global stats
     game = vzd.DoomGame()
-    
-    # Path to your uploaded shareware WAD
-    game.set_doom_game_path("doom1.wad") 
-    
-    # Load a basic configuration (handles buttons/screen res)
+    game.set_doom_game_path("doom1.wad")
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
-    
-    # Set the specific map (E1M1 is the start of the shareware)
-    game.set_doom_map("map01") 
-    
-    game.set_window_visible(False) # Required for Render
     game.init()
-    
-    print("AI is now playing the Full Shareware Episode...")
+
     while True:
         if game.is_episode_finished():
+            stats["deaths"] += 1  # Increment death counter
+            socketio.emit('stats_update', stats) # Send to website
             game.new_episode()
-        
-        state = game.get_state()
-        # The agent makes a choice based on what it sees
-        game.make_action([1, 0, 1]) # Move/Shoot/Interact
+
+        # Update other stats periodically
+        current_kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
+        if current_kills != stats["kills"]:
+            stats["kills"] = current_kills
+            socketio.emit('stats_update', stats)
+
+        game.make_action([1, 0, 1])
         time.sleep(0.02)
 
 
@@ -54,14 +54,27 @@ def run_ai_agent():
 @app.route('/')
 def index():
     return render_template_string('''
-        <h1>AI Playing Doom 24/7</h1>
-        <p>Status: Running on Render Free Tier</p>
-        <div id="status">Connecting to AI stream...</div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-        <script>
-            var socket = io();
-            socket.on('connect', () => { document.getElementById('status').innerText = "AI Online"; });
-        </script>
+        <body style="background:#000; color:#0f0; font-family:monospace; text-align:center;">
+            <h1 style="text-shadow: 0 0 10px #f00; color:#f00;">AI DOOM SLAYER</h1>
+            
+            <div style="display:flex; justify-content:center; gap:20px; font-size:1.5rem; margin-bottom:20px;">
+                <div>LEVEL: <span id="level">E1M1</span></div>
+                <div>DEATHS: <span id="deaths">0</span></div>
+                <div>KILLS: <span id="kills">0</span></div>
+            </div>
+
+            <canvas id="doomCanvas" style="border:4px solid #333; box-shadow: 0 0 20px #0f0;"></canvas>
+
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+            <script>
+                var socket = io();
+                socket.on('stats_update', (data) => {
+                    document.getElementById('deaths').innerText = data.deaths;
+                    document.getElementById('level').innerText = data.level;
+                    document.getElementById('kills').innerText = data.kills;
+                });
+            </script>
+        </body>
     ''')
 
 if __name__ == '__main__':
