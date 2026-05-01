@@ -1,0 +1,7 @@
+flask
+flask-socketio
+vizdoom
+stable-baselines3
+shimmy
+opencv-python-headless
+numpy
