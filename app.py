@@ -125,6 +125,6 @@ if __name__ == '__main__':
     threading.Thread(target=run_ai_agent, daemon=True).start()
     
     port = int(os.environ.get('PORT', 10000))
-    socketio.run(app, host='0.0.0.0', port=port)
-
+    # Add allow_unsafe_werkzeug=True here:
+    socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
 
