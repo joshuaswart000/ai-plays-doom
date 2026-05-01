@@ -7,21 +7,34 @@ from flask import Flask, render_template_string
 from flask_socketio import SocketIO
 import base64
 import cv2
-import random
+import numpy as np
 
 app = Flask(__name__)
-# Using 'threading' mode is more stable for Render's limited CPU
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# --- LIGHTWEIGHT NEURAL NETWORK (NUMPY BRAIN) ---
+# 19200 pixels (160x120) mapped to 3 actions [Forward, Left, Right]
+np.random.seed(42) 
+weights = np.random.rand(19200, 3) - 0.5 # Center weights around 0
+
+def get_ai_action(screen_buffer):
+    # Flatten and normalize the 160x120 grayscale image
+    flattened = screen_buffer.flatten() / 255.0
+    # Simple Matrix Multiply (The "Neural" part)
+    prediction = np.dot(flattened, weights)
+    # Return binary actions based on thresholds
+    return [1 if x > 0 else 0 for x in prediction]
 
 # --- STAY AWAKE LOGIC ---
 def keep_awake():
+    url = "https://ai-plays-doom.onrender.com"
     while True:
         try:
-            requests.get("https://ai-plays-doom.onrender.com", timeout=5)
-            print("Self-ping: Awake")
-        except:
-            print("Ping failed")
-        time.sleep(5*60) # 14 minutes
+            requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            print("Self-ping: Success")
+        except Exception as e:
+            print(f"Self-ping: Failed - {e}")
+        time.sleep(300) # 5 minutes
 
 # --- AI AGENT LOGIC ---
 stats = {"deaths": 0, "level": "E1M1", "kills": 0}
@@ -30,18 +43,18 @@ def run_ai_agent():
     global stats
     game = vzd.DoomGame()
     
-    # Ensure this matches your filename on GitHub exactly
+    # Path to your lowercase wad
     game.set_doom_game_path("doom1.wad") 
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
     
-    # RAM SAVERS: Essential for Render Free Tier
+    # High-efficiency settings for Render Free Tier
     game.set_screen_resolution(vzd.ScreenResolution.RES_160X120)
     game.set_screen_format(vzd.ScreenFormat.GRAY8)
     game.set_render_hud(False)
     game.set_window_visible(False)
     game.init()
 
-    print("AI Agent Started")
+    print("AI Agent Started with Numpy Brain")
     
     while True:
         if game.is_episode_finished():
@@ -51,25 +64,25 @@ def run_ai_agent():
 
         state = game.get_state()
         if state:
-            # Convert frame to image for the website
             frame = state.screen_buffer
+            
+            # 1. AI Decision Making
+            action = get_ai_action(frame)
+            game.make_action(action)
+
+            # 2. Transmit frame to web
             _, buffer = cv2.imencode('.jpg', frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             socketio.emit('new_frame', {'image': jpg_as_text})
 
-            # Update Kills
+            # 3. Update Stats
             curr_kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
             if curr_kills != stats["kills"]:
                 stats["kills"] = curr_kills
                 socketio.emit('stats_update', stats)
 
-        # AI INPUT: Random actions to keep it moving/unfrozen
-        # [Left, Right, Attack]
-        action = [random.choice([0,1]), random.choice([0,1]), random.choice([0,1])]
-        game.make_action(action)
-        
-        # Give the CPU a breath (approx 5-10 FPS)
-        time.sleep(0.1)
+        socketio.sleep(0) # Yield to web server
+        time.sleep(0.05)
 
 # --- WEB ROUTES ---
 @app.route('/')
@@ -94,7 +107,7 @@ def index():
                 <div>KILLS: <span id="kills">0</span></div>
             </div>
             <canvas id="doomCanvas" width="160" height="120"></canvas>
-            <p>Live AI Feed - Render Free Tier</p>
+            <p>Neural Network Brain (Numpy) - Running 24/7</p>
 
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
             <script>
@@ -109,9 +122,7 @@ def index():
 
                 socket.on('new_frame', (data) => {
                     var img = new Image();
-                    img.onload = function() {
-                        ctx.drawImage(img, 0, 0);
-                    };
+                    img.onload = function() { ctx.drawImage(img, 0, 0); };
                     img.src = "data:image/jpeg;base64," + data.image;
                 });
             </script>
@@ -124,6 +135,4 @@ if __name__ == '__main__':
     threading.Thread(target=run_ai_agent, daemon=True).start()
     
     port = int(os.environ.get('PORT', 10000))
-    # Add allow_unsafe_werkzeug=True here:
     socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
-
