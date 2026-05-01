@@ -25,25 +25,30 @@ def keep_awake():
 # --- AI AGENT LOGIC ---
 def run_ai_agent():
     game = vzd.DoomGame()
-    # Use 'basic.cfg' (standard test map)
+    
+    # Path to your uploaded shareware WAD
+    game.set_doom_game_path("doom1.wad") 
+    
+    # Load a basic configuration (handles buttons/screen res)
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
-    game.set_window_visible(False) # MUST BE HEADLESS FOR RENDER
+    
+    # Set the specific map (E1M1 is the start of the shareware)
+    game.set_doom_map("map01") 
+    
+    game.set_window_visible(False) # Required for Render
     game.init()
     
-    print("AI Agent Started.")
+    print("AI is now playing the Full Shareware Episode...")
     while True:
         if game.is_episode_finished():
             game.new_episode()
         
         state = game.get_state()
-        # AI Logic: Replace this with model.predict(state.screen_buffer) later
-        # For now, let's just make it move/shoot randomly
-        game.make_action([1, 0, 1]) 
-        
-        # Every few frames, we could emit data to the front-end here
-        # socketio.emit('frame', {'data': 'image_base64_here'})
-        
-        time.sleep(0.05)
+        # The agent makes a choice based on what it sees
+        game.make_action([1, 0, 1]) # Move/Shoot/Interact
+        time.sleep(0.02)
+
+
 
 # --- WEB ROUTES ---
 @app.route('/')
