@@ -14,17 +14,20 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # --- EVOLUTIONARY BRAIN SETUP ---
 np.random.seed(42)
-# 19200 pixels -> 3 actions
 weights = np.random.rand(19200, 3) - 0.5
+best_weights = np.copy(weights)
+best_score = -1
 generation = 1
+start_time = time.time()
 
-def mutate_brain(intensity=0.02):
-    """Slightly alters the weights to 'learn' new behaviors on death."""
-    global weights, generation
+def mutate_brain(intensity=0.05):
+    global weights, generation, best_weights
+    # Always start mutating from the BEST known version
+    weights = np.copy(best_weights) 
     mutation = (np.random.rand(19200, 3) - 0.5) * intensity
     weights += mutation
     generation += 1
-    print(f"Brain Mutated. Now at Generation: {generation}")
+    print(f"Gen {generation} | Tweak intensity: {intensity}")
 
 def get_ai_action(screen_buffer):
     flattened = screen_buffer.flatten() / 255.0
@@ -39,13 +42,13 @@ def keep_awake():
             requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
         except:
             pass
-        time.sleep(300)
+        time.sleep(600)
 
 # --- AI AGENT ---
-stats = {"deaths": 0, "level": "E1M1", "kills": 0, "gen": 1}
+stats = {"deaths": 0, "level": "E1M1", "kills": 0, "gen": 1, "best": 0}
 
 def run_ai_agent():
-    global stats
+    global stats, best_score, best_weights, start_time
     game = vzd.DoomGame()
     game.set_doom_game_path("doom1.wad") 
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
@@ -56,14 +59,29 @@ def run_ai_agent():
     game.set_window_visible(False)
     game.init()
 
+    start_time = time.time()
+
     while True:
         if game.is_episode_finished():
+            # SCORING LOGIC
+            duration = time.time() - start_time
+            kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
+            # Score = 1 point per second alive + 100 per kill
+            current_score = duration + (kills * 100)
+
+            if current_score > best_score:
+                best_score = current_score
+                best_weights = np.copy(weights)
+                stats["best"] = round(best_score, 1)
+                print(f"NEW BEST: {stats['best']}")
+
             stats["deaths"] += 1
-            # EVOLVE: Change the brain slightly every time he dies
             mutate_brain()
             stats["gen"] = generation
             socketio.emit('stats_update', stats)
+            
             game.new_episode()
+            start_time = time.time()
 
         state = game.get_state()
         if state:
@@ -81,7 +99,7 @@ def run_ai_agent():
                 socketio.emit('stats_update', stats)
 
         socketio.sleep(0)
-        time.sleep(0.05)
+        time.sleep(0.04)
 
 # --- WEB UI ---
 @app.route('/')
@@ -94,21 +112,22 @@ def index():
             <style>
                 body { background: #000; color: #0f0; font-family: monospace; text-align: center; margin: 0; padding: 20px; }
                 h1 { color: #f00; text-shadow: 0 0 10px #f00; margin: 10px 0; }
-                .stats { display: flex; justify-content: center; gap: 30px; font-size: 1.2rem; margin: 20px 0; }
+                .stats { display: flex; justify-content: center; gap: 20px; font-size: 1.1rem; margin: 20px 0; flex-wrap: wrap; }
                 #doomCanvas { border: 4px solid #333; box-shadow: 0 0 20px #0f0; width: 640px; height: 480px; image-rendering: pixelated; }
-                .gen-tag { color: #555; font-size: 0.8rem; }
+                .val { color: #fff; }
+                .best-tag { color: #ff0; font-weight: bold; }
             </style>
         </head>
         <body>
             <h1>AI DOOM SLAYER</h1>
             <div class="stats">
-                <div>LEVEL: <span id="level">E1M1</span></div>
-                <div>DEATHS: <span id="deaths">0</span></div>
-                <div>KILLS: <span id="kills">0</span></div>
-                <div style="color:#0af">GEN: <span id="gen">1</span></div>
+                <div>GEN: <span id="gen" class="val">1</span></div>
+                <div>DEATHS: <span id="deaths" class="val">0</span></div>
+                <div>KILLS: <span id="kills" class="val">0</span></div>
+                <div class="best-tag">HI-SCORE: <span id="best">0</span></div>
             </div>
             <canvas id="doomCanvas" width="160" height="120"></canvas>
-            <p class="gen-tag">Neural Network (Genetic Mutation on Death) - Learning 24/7</p>
+            <p style="color: #666;">Evolutionary Neural Network (Numpy) | Mutation on Death</p>
 
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
             <script>
@@ -120,6 +139,7 @@ def index():
                     document.getElementById('deaths').innerText = data.deaths;
                     document.getElementById('kills').innerText = data.kills;
                     document.getElementById('gen').innerText = data.gen;
+                    document.getElementById('best').innerText = data.best;
                 });
 
                 socket.on('new_frame', (data) => {
