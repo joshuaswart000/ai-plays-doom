@@ -18,16 +18,13 @@ weights = np.random.rand(19200, 3) - 0.5
 best_weights = np.copy(weights)
 best_score = -1
 generation = 1
-start_time = time.time()
 
-def mutate_brain(intensity=0.05):
+def mutate_brain(intensity=0.06): # Slightly higher intensity to break stalemates
     global weights, generation, best_weights
-    # Always start mutating from the BEST known version
     weights = np.copy(best_weights) 
     mutation = (np.random.rand(19200, 3) - 0.5) * intensity
     weights += mutation
     generation += 1
-    print(f"Gen {generation} | Tweak intensity: {intensity}")
 
 def get_ai_action(screen_buffer):
     flattened = screen_buffer.flatten() / 255.0
@@ -48,7 +45,7 @@ def keep_awake():
 stats = {"deaths": 0, "level": "E1M1", "kills": 0, "gen": 1, "best": 0}
 
 def run_ai_agent():
-    global stats, best_score, best_weights, start_time
+    global stats, best_score, best_weights
     game = vzd.DoomGame()
     game.set_doom_game_path("doom1.wad") 
     game.load_config(os.path.join(vzd.scenarios_path, "basic.cfg"))
@@ -59,47 +56,54 @@ def run_ai_agent():
     game.set_window_visible(False)
     game.init()
 
-    start_time = time.time()
-
     while True:
-        if game.is_episode_finished():
-            # SCORING LOGIC
-            duration = time.time() - start_time
-            kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
-            # Score = 1 point per second alive + 100 per kill
-            current_score = duration + (kills * 100)
+        game.new_episode()
+        start_time = time.time()
+        dist_traveled = 0
+        last_x, last_y = 0, 0
 
-            if current_score > best_score:
-                best_score = current_score
-                best_weights = np.copy(weights)
-                stats["best"] = round(best_score, 1)
-                print(f"NEW BEST: {stats['best']}")
+        while not game.is_episode_finished():
+            state = game.get_state()
+            if state:
+                # 1. Track Movement for Scoring
+                curr_x = game.get_game_variable(vzd.GameVariable.POSITION_X)
+                curr_y = game.get_game_variable(vzd.GameVariable.POSITION_Y)
+                # Calculate distance from last frame
+                dist_traveled += np.sqrt((curr_x - last_x)**2 + (curr_y - last_y)**2)
+                last_x, last_y = curr_x, curr_y
 
-            stats["deaths"] += 1
-            mutate_brain()
-            stats["gen"] = generation
-            socketio.emit('stats_update', stats)
-            
-            game.new_episode()
-            start_time = time.time()
+                # 2. AI Decision
+                frame = state.screen_buffer
+                action = get_ai_action(frame)
+                game.make_action(action)
 
-        state = game.get_state()
-        if state:
-            frame = state.screen_buffer
-            action = get_ai_action(frame)
-            game.make_action(action)
+                # 3. UI Update
+                _, buffer = cv2.imencode('.jpg', frame)
+                jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+                socketio.emit('new_frame', {'image': jpg_as_text})
 
-            _, buffer = cv2.imencode('.jpg', frame)
-            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-            socketio.emit('new_frame', {'image': jpg_as_text})
+            socketio.sleep(0)
+            time.sleep(0.04)
 
-            curr_kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
-            if curr_kills != stats["kills"]:
-                stats["kills"] = curr_kills
-                socketio.emit('stats_update', stats)
+        # --- EPISODE FINISHED: EVALUATE ---
+        duration = time.time() - start_time
+        kills = game.get_game_variable(vzd.GameVariable.KILLCOUNT)
+        
+        # NEW SCORING: Reward distance + kills, penalize sitting still
+        # If distance is < 50 units, the score is heavily penalized
+        movement_bonus = dist_traveled / 10.0
+        current_score = movement_bonus + (kills * 500)
+        if dist_traveled < 50: current_score *= 0.1 
 
-        socketio.sleep(0)
-        time.sleep(0.04)
+        if current_score > best_score:
+            best_score = current_score
+            best_weights = np.copy(weights)
+            stats["best"] = round(best_score, 1)
+
+        stats["deaths"] += 1
+        mutate_brain()
+        stats["gen"] = generation
+        socketio.emit('stats_update', stats)
 
 # --- WEB UI ---
 @app.route('/')
@@ -112,10 +116,9 @@ def index():
             <style>
                 body { background: #000; color: #0f0; font-family: monospace; text-align: center; margin: 0; padding: 20px; }
                 h1 { color: #f00; text-shadow: 0 0 10px #f00; margin: 10px 0; }
-                .stats { display: flex; justify-content: center; gap: 20px; font-size: 1.1rem; margin: 20px 0; flex-wrap: wrap; }
+                .stats { display: flex; justify-content: center; gap: 20px; font-size: 1.1rem; margin: 20px 0; }
                 #doomCanvas { border: 4px solid #333; box-shadow: 0 0 20px #0f0; width: 640px; height: 480px; image-rendering: pixelated; }
                 .val { color: #fff; }
-                .best-tag { color: #ff0; font-weight: bold; }
             </style>
         </head>
         <body>
@@ -124,24 +127,20 @@ def index():
                 <div>GEN: <span id="gen" class="val">1</span></div>
                 <div>DEATHS: <span id="deaths" class="val">0</span></div>
                 <div>KILLS: <span id="kills" class="val">0</span></div>
-                <div class="best-tag">HI-SCORE: <span id="best">0</span></div>
+                <div style="color:#ff0">HI-SCORE: <span id="best">0</span></div>
             </div>
             <canvas id="doomCanvas" width="160" height="120"></canvas>
-            <p style="color: #666;">Evolutionary Neural Network (Numpy) | Mutation on Death</p>
-
+            <p style="color: #666;">Evolutionary Neural Network | Distance-Based Reward System</p>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
             <script>
                 var socket = io();
-                var canvas = document.getElementById('doomCanvas');
-                var ctx = canvas.getContext('2d');
-
+                var ctx = document.getElementById('doomCanvas').getContext('2d');
                 socket.on('stats_update', (data) => {
                     document.getElementById('deaths').innerText = data.deaths;
                     document.getElementById('kills').innerText = data.kills;
                     document.getElementById('gen').innerText = data.gen;
                     document.getElementById('best').innerText = data.best;
                 });
-
                 socket.on('new_frame', (data) => {
                     var img = new Image();
                     img.onload = function() { ctx.drawImage(img, 0, 0); };
